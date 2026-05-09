@@ -49,18 +49,28 @@ def detect(input_data):
 
 file_path = "Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv"
 
-# Load full dataset first (safe approach)
-sample_df = pd.read_csv(
+chunk_size = 1000
+
+for chunk in pd.read_csv(
     file_path,
     encoding='latin1',
-    low_memory=False
-)
+    low_memory=False,
+    chunksize=chunk_size
+):
 
-# Clean column names
-sample_df.columns = sample_df.columns.str.strip()
+    chunk.columns = chunk.columns.str.strip()
+    chunk.replace([np.inf, -np.inf], np.nan, inplace=True)
+    chunk.fillna(0, inplace=True)
 
-print("\nCSV columns loaded:", len(sample_df.columns))
-print("First columns:", list(sample_df.columns[:10]))
+    chunk = chunk.reindex(columns=features, fill_value=0)
+
+    for i in range(min(100, len(chunk))):
+
+        print(f"\nAnalyzing flow {i}")
+
+        sample_input = chunk.iloc[i].to_dict()
+
+        detect(sample_input)
 
 
 # =========================
