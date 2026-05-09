@@ -59,10 +59,13 @@ for chunk in pd.read_csv(
 ):
 
     chunk.columns = chunk.columns.str.strip()
+
+    # align features safely
+    chunk = chunk.reindex(columns=features, fill_value=0)
+
+    # clean values
     chunk.replace([np.inf, -np.inf], np.nan, inplace=True)
     chunk.fillna(0, inplace=True)
-
-    chunk = chunk.reindex(columns=features, fill_value=0)
 
     for i in range(min(100, len(chunk))):
 
@@ -71,33 +74,3 @@ for chunk in pd.read_csv(
         sample_input = chunk.iloc[i].to_dict()
 
         detect(sample_input)
-
-
-# =========================
-# STEP 5 — Align features safely
-# =========================
-
-missing_features = [f for f in features if f not in sample_df.columns]
-
-if missing_features:
-    print("\n⚠️ Missing features in CSV:", missing_features)
-
-sample_df = sample_df.reindex(columns=features)
-
-sample_df.replace([np.inf, -np.inf], np.nan, inplace=True)
-sample_df.fillna(0, inplace=True)
-
-
-# =========================
-# STEP 6 — Run detection
-# =========================
-
-limit = min(100, len(sample_df))
-
-for i in range(limit):
-
-    print(f"\nAnalyzing flow {i}")
-
-    sample_input = sample_df.iloc[i].to_dict()
-
-    detect(sample_input)
