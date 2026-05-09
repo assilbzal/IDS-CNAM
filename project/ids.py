@@ -59,7 +59,7 @@ sample_df.replace([np.inf, -np.inf], np.nan, inplace=True)
 sample_df.dropna(inplace=True)
 
 # Keep only trained features
-for i in range(len(sample_df)):  #for i in range(100):
+for i in range(100):         #for i in range(len(sample_df)): 
 
     print(f"\nAnalyzing flow {i}")
 
