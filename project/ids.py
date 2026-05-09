@@ -46,7 +46,7 @@ def detect(input_data):
 
 
 sample_df = pd.read_csv(
-    "C:\\Users\\USER\\OneDrive\\Desktop\\dr.Natasha\\ids paper\\project\\GeneratedLabelledFlows\\TrafficLabelling\\Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv",
+    "Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv",
     encoding='latin1',
     low_memory=False
 )
