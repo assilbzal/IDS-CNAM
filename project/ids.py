@@ -82,10 +82,8 @@ missing_features = [f for f in features if f not in sample_df.columns]
 if missing_features:
     print("\n⚠️ Missing features in CSV:", missing_features)
 
-# keep only available features
 sample_df = sample_df.reindex(columns=features)
 
-# handle NaN / inf
 sample_df.replace([np.inf, -np.inf], np.nan, inplace=True)
 sample_df.fillna(0, inplace=True)
 
