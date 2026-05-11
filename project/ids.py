@@ -2,6 +2,13 @@ import joblib
 import pandas as pd
 import numpy as np
 import warnings
+import logging
+
+logging.basicConfig(
+    filename="alerts.log",
+    level=logging.INFO,
+    format="%(asctime)s - %(message)s"
+)
 
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -38,9 +45,20 @@ def detect(input_data):
     result = predict(input_data)
 
     if result != "BENIGN":
-        print(f"⚠️ ATTACK DETECTED: {result}")
-    else:
-        print("✅ Normal traffic")
+
+    alert_message = f"⚠️ ATTACK DETECTED: {result}"
+
+    print(alert_message)
+
+    logging.warning(alert_message)
+
+else:
+
+    normal_message = "✅ Normal traffic"
+
+    print(normal_message)
+
+    logging.info(normal_message)
 
 
 # =========================
