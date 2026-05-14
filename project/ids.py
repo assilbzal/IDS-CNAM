@@ -3,85 +3,67 @@ import joblib
 import pandas as pd
 import numpy as np
 import warnings
-from scapy.all import sniff
+from scapy.all import sniff, IP, TCP, UDP
 
 # =========================
 # LOGGING CONFIG
 # =========================
-
 logging.basicConfig(
     filename="alerts.log",
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
-warnings.filterwarnings("ignore", category=UserWarning)
-warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore")
 
 # =========================
 # LOAD MODEL + FEATURES
 # =========================
-
 model = joblib.load("ids_model.pkl")
 features = joblib.load("features.pkl")
 
 print(f"[INFO] Loaded model with {len(features)} features")
 
 # =========================
-# FEATURE EXTRACTION
+# FEATURE MAPPING
 # =========================
-
-def extract_features(input_data):
+def extract_features(packet_data):
     """
-    Map raw extracted_features.csv row → ML feature space (55 features)
+    Build full feature vector matching trained model (55 features)
+    Missing values → 0
     """
 
     feature_dict = {f: 0 for f in features}
 
-    # map YOUR real extracted values
-    feature_dict["length"] = input_data.get("length", 0)
-    feature_dict["proto"] = input_data.get("proto", 0)
-    feature_dict["time"] = input_data.get("time", 0)
+    # basic mappings we actually have
+    feature_dict["Flow Duration"] = packet_data.get("time", 0)
+    feature_dict["Protocol"] = packet_data.get("proto", 0)
 
-    # optional derived features (VERY IMPORTANT IMPROVEMENT)
-    feature_dict["src_bytes"] = input_data.get("length", 0)
-    feature_dict["dst_bytes"] = 0
-    feature_dict["duration"] = 0
+    feature_dict["Source Port"] = packet_data.get("sport", 0)
+    feature_dict["Destination Port"] = packet_data.get("dport", 0)
+
+    feature_dict["Total Length of Fwd Packets"] = packet_data.get("length", 0)
+    feature_dict["Total Fwd Packets"] = 1
+
+    feature_dict["Flow Bytes/s"] = packet_data.get("length", 0)
 
     return feature_dict
 
-# =========================
-# PREDICTION
-# =========================
-
-def predict(feature_dict):
-
-    df = pd.DataFrame([feature_dict])
-
-    # enforce correct order
-    df = df.reindex(columns=features, fill_value=0)
-
-    # clean data
-    df.replace([np.inf, -np.inf], np.nan, inplace=True)
-    df.fillna(0, inplace=True)
-
-    prediction = model.predict(df)
-
-    return prediction[0]
 
 # =========================
 # DETECTION ENGINE
 # =========================
-
 def detect(feature_dict):
     try:
-        # Convert to DataFrame
         df = pd.DataFrame([feature_dict])
 
-        # Ensure correct feature order
-        df = df[features]
+        # IMPORTANT FIX (prevents your crash)
+        df = df.reindex(columns=features, fill_value=0)
 
-        # Predict
+        # clean
+        df.replace([np.inf, -np.inf], np.nan, inplace=True)
+        df.fillna(0, inplace=True)
+
         result = model.predict(df)[0]
 
         if result != "BENIGN":
@@ -95,63 +77,43 @@ def detect(feature_dict):
     except Exception as e:
         print("Error in detect():", e)
 
-        
-# =========================
-# TEST / CSV MODE (TEMPORARY BRIDGE)
-# =========================
 
-
+# =========================
+# PACKET PROCESSOR
+# =========================
 def process_packet(pkt):
-
-    feature_dict = {f: 0 for f in features}
     try:
-        data = {
+        packet_data = {
             "length": len(pkt),
-            "proto": pkt.proto if hasattr(pkt, "proto") else 0,
-            "time": pkt.time,
-            "src_bytes": len(pkt),
-            "dst_bytes": 0
+            "time": pkt.time
         }
 
-        # optional improvements
-        if pkt.haslayer("IP"):
-            data["src_ip"] = pkt["IP"].src
-            data["dst_ip"] = pkt["IP"].dst
+        if IP in pkt:
+            packet_data["proto"] = pkt[IP].proto
 
-        if pkt.haslayer("TCP"):
-            data["sport"] = pkt["TCP"].sport
-            data["dport"] = pkt["TCP"].dport
+        if TCP in pkt:
+            packet_data["sport"] = pkt[TCP].sport
+            packet_data["dport"] = pkt[TCP].dport
 
-        detect(data)
+        elif UDP in pkt:
+            packet_data["sport"] = pkt[UDP].sport
+            packet_data["dport"] = pkt[UDP].dport
+            packet_data["proto"] = 17
+
+        else:
+            packet_data["proto"] = 0
+
+        # FINAL PIPELINE (IMPORTANT FIX)
+        feature_dict = extract_features(packet_data)
+        detect(feature_dict)
 
     except Exception as e:
-        print(e)
+        print("Packet error:", e)
 
 
-
-"""
-def run_csv_mode(file_path="traffic_features.csv"):
-
-    chunk_size = 1000
-
-    try:
-        for chunk in pd.read_csv(file_path, chunksize=chunk_size):
-
-            chunk.columns = chunk.columns.str.strip()
-
-            for i in range(min(100, len(chunk))):
-
-                raw_input = chunk.iloc[i].to_dict()
-
-                detect(raw_input)
-
-    except FileNotFoundError:
-        print("❌ CSV file not found. Make sure traffic_features.csv exists.")
-"""
 # =========================
-# MAIN ENTRY POINT
+# MAIN
 # =========================
-
 if __name__ == "__main__":
 
     print("🚀 REAL-TIME IDS STARTED")
