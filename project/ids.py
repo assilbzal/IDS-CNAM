@@ -1,94 +1,161 @@
+import logging
 import joblib
 import pandas as pd
 import numpy as np
 import warnings
-import logging
+from scapy.all import sniff
+
+# =========================
+# LOGGING CONFIG
+# =========================
 
 logging.basicConfig(
     filename="alerts.log",
     level=logging.INFO,
-    format="%(asctime)s - %(message)s"
+    format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 # =========================
-# STEP 1 — Load model
+# LOAD MODEL + FEATURES
 # =========================
 
 model = joblib.load("ids_model.pkl")
 features = joblib.load("features.pkl")
 
-print(f"Loaded {len(features)} features")
-
+print(f"[INFO] Loaded model with {len(features)} features")
 
 # =========================
-# STEP 2 — Prediction
+# FEATURE EXTRACTION
 # =========================
 
-def predict(input_data):
-    df = pd.DataFrame([input_data])
+def extract_features(input_data):
+    """
+    Map raw extracted_features.csv row → ML feature space (55 features)
+    """
 
-    # ensure all features exist
+    feature_dict = {f: 0 for f in features}
+
+    # map YOUR real extracted values
+    feature_dict["length"] = input_data.get("length", 0)
+    feature_dict["proto"] = input_data.get("proto", 0)
+    feature_dict["time"] = input_data.get("time", 0)
+
+    # optional derived features (VERY IMPORTANT IMPROVEMENT)
+    feature_dict["src_bytes"] = input_data.get("length", 0)
+    feature_dict["dst_bytes"] = 0
+    feature_dict["duration"] = 0
+
+    return feature_dict
+
+# =========================
+# PREDICTION
+# =========================
+
+def predict(feature_dict):
+
+    df = pd.DataFrame([feature_dict])
+
+    # enforce correct order
     df = df.reindex(columns=features, fill_value=0)
 
+    # clean data
+    df.replace([np.inf, -np.inf], np.nan, inplace=True)
+    df.fillna(0, inplace=True)
+
     prediction = model.predict(df)
+
     return prediction[0]
 
-
 # =========================
-# STEP 3 — Alert logic
-# =========================
-
-def detect(input_data):
-    result = predict(input_data)
-
-    if result != "BENIGN":
-
-    alert_message = f"⚠️ ATTACK DETECTED: {result}"
-
-    print(alert_message)
-
-    logging.warning(alert_message)
-
-else:
-
-    normal_message = "✅ Normal traffic"
-
-    print(normal_message)
-
-    logging.info(normal_message)
-
-
-# =========================
-# STEP 4 — Load dataset safely
+# DETECTION ENGINE
 # =========================
 
-file_path = "Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv"
+def detect(feature_dict):
+    try:
+        # Convert to DataFrame
+        df = pd.DataFrame([feature_dict])
 
-chunk_size = 1000
+        # Ensure correct feature order
+        df = df[features]
 
-for chunk in pd.read_csv(
-    file_path,
-    encoding='latin1',
-    low_memory=False,
-    chunksize=chunk_size
-):
+        # Predict
+        result = model.predict(df)[0]
 
-    chunk.columns = chunk.columns.str.strip()
+        if result != "BENIGN":
+            alert = f"⚠️ ATTACK DETECTED: {result}"
+            print(alert)
+            logging.warning(alert)
+        else:
+            print("✅ Normal Traffic")
+            logging.info("Normal Traffic")
 
-    # align features safely
-    chunk = chunk.reindex(columns=features, fill_value=0)
+    except Exception as e:
+        print("Error in detect():", e)
 
-    # clean values
-    chunk.replace([np.inf, -np.inf], np.nan, inplace=True)
-    chunk.fillna(0, inplace=True)
+        
+# =========================
+# TEST / CSV MODE (TEMPORARY BRIDGE)
+# =========================
 
-    for i in range(min(100, len(chunk))):
 
-        print(f"\nAnalyzing flow {i}")
+def process_packet(pkt):
 
-        sample_input = chunk.iloc[i].to_dict()
+    feature_dict = {f: 0 for f in features}
+    try:
+        data = {
+            "length": len(pkt),
+            "proto": pkt.proto if hasattr(pkt, "proto") else 0,
+            "time": pkt.time,
+            "src_bytes": len(pkt),
+            "dst_bytes": 0
+        }
 
-        detect(sample_input)
+        # optional improvements
+        if pkt.haslayer("IP"):
+            data["src_ip"] = pkt["IP"].src
+            data["dst_ip"] = pkt["IP"].dst
+
+        if pkt.haslayer("TCP"):
+            data["sport"] = pkt["TCP"].sport
+            data["dport"] = pkt["TCP"].dport
+
+        detect(data)
+
+    except Exception as e:
+        print(e)
+
+
+
+"""
+def run_csv_mode(file_path="traffic_features.csv"):
+
+    chunk_size = 1000
+
+    try:
+        for chunk in pd.read_csv(file_path, chunksize=chunk_size):
+
+            chunk.columns = chunk.columns.str.strip()
+
+            for i in range(min(100, len(chunk))):
+
+                raw_input = chunk.iloc[i].to_dict()
+
+                detect(raw_input)
+
+    except FileNotFoundError:
+        print("❌ CSV file not found. Make sure traffic_features.csv exists.")
+"""
+# =========================
+# MAIN ENTRY POINT
+# =========================
+
+if __name__ == "__main__":
+
+    print("🚀 REAL-TIME IDS STARTED")
+
+    sniff(prn=process_packet, store=False)
+
+    print("🛑 IDS STOPPED")
